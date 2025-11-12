@@ -1,6 +1,9 @@
 import random
 
-from .molecule import Molecule
+try:
+    from .molecule import Molecule  # type: ignore
+except ImportError:
+    from molecule import Molecule
 
 def run_simulation(n_timesteps: int, molecule_limit: int, spawn_rate: float, variation: float) -> None:
     """
