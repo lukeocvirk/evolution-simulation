@@ -10,7 +10,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Import your Molecule; assumes Molecule.step() handles movement + bounce
 from backend.molecule import Molecule
 from backend.simulate import record_results, log_new_species, output_final
 
