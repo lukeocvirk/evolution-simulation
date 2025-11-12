@@ -1,6 +1,11 @@
 import random
 
-from .molecule import Molecule
+from pathlib import Path
+
+try:
+    from .molecule import Molecule  # type: ignore
+except ImportError:
+    from molecule import Molecule
 
 def run_simulation(n_timesteps: int, molecule_limit: int, spawn_rate: float, variation: float) -> None:
     """
@@ -90,7 +95,13 @@ def run_simulation(n_timesteps: int, molecule_limit: int, spawn_rate: float, var
                     children.append(new_molecule)
 
                     # Log the new molecule
-                    log_new_species(current_species_id, reproduce_chance, mutate_chance, death_chance, output_file_path="output/molecules.txt")
+                    log_new_species(
+                        current_species_id,
+                        reproduce_chance,
+                        mutate_chance,
+                        death_chance,
+                        output_file_path=str(Path(__file__).parent / "output" / "molecules.txt"),
+                    )
                     continue
 
                 # Create new molecule copy
@@ -112,14 +123,23 @@ def run_simulation(n_timesteps: int, molecule_limit: int, spawn_rate: float, var
             molecule.step()
 
         # Record results for this timestep
-        record_results(timestep, molecules, current_species_id, output_file_path="output/output.txt")
+        record_results(
+            timestep,
+            molecules,
+            current_species_id,
+            output_file_path=str(Path(__file__).parent / "output" / "output.txt"),
+        )
 
         # End simulation if maximum timesteps reached
         if n_timesteps != -1 and timestep >= n_timesteps:
             break
 
     # Output final state stats
-    output_final(molecules, current_species_id, output_file_path="output/final.txt")
+    output_final(
+        molecules,
+        current_species_id,
+        output_file_path=str(Path(__file__).parent / "output" / "final.txt"),
+    )
 
 def randomize_colour() -> str:
     """
