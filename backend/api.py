@@ -11,6 +11,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.molecule import Molecule
+import logging
+
+# Lightweight logger for control events (doesn't override uvicorn logging)
+logger = logging.getLogger("evolution.control")
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("[evolution] %(asctime)s %(levelname)s: %(message)s"))
+    logger.addHandler(_h)
+logger.setLevel(logging.INFO)
 from backend.simulate import record_results, log_new_species, output_final
 
 
@@ -26,6 +35,7 @@ class MoleculeDTO(BaseModel):
 class StateDTO(BaseModel):
     timestep: int
     molecules: List[MoleculeDTO]
+    paused: bool = False
 
 
 # ----- Helpers -----
@@ -67,6 +77,7 @@ class Simulation:
         self.current_species_id = 1
         self.next_entity_id = 1
         self.molecules: list[Molecule] = []
+        self.paused: bool = False
 
         # Optional: keep a stable colour per species (first species gets one at first spawn)
         self.species_colour: dict[int, str] = {}
@@ -218,6 +229,7 @@ class Simulation:
                 )
                 for m in self.molecules
             ],
+            paused=self.paused,
         )
 
 
@@ -232,6 +244,7 @@ app.add_middleware(
 
 sim = Simulation(molecule_limit=1000, spawn_rate=50.0, variation=0.5)
 manager = ConnectionManager()
+sim_lock = asyncio.Lock()
 
 
 # ----- Background ticking loop -----
@@ -251,20 +264,24 @@ async def _tick_loop() -> None:
             await asyncio.sleep(TICK_DT)
             continue
 
-        # Advance simulation (use fixed tick for stability if preferred)
-        try:
-            sim.step(dt)
-        except Exception:
-            # Do not crash the loop on a single-step failure
-            pass
-
-        # Prepare payload compatible with Pydantic v2 or v1
-        try:
-            payload = sim.to_state().model_dump()
-        except AttributeError:
-            payload = sim.to_state().dict()
-
-        await manager.broadcast(payload)
+        # Advance simulation (guarded by a lock to avoid interleaving
+        # with control messages; also broadcast while holding the lock
+        # so no stale payload can be sent after a pause/resume toggle)
+        async with sim_lock:
+            try:
+                if not sim.paused:
+                    try:
+                        sim.step(dt)
+                    except Exception:
+                        pass
+                # Always broadcast current state (even when paused)
+                try:
+                    payload = sim.to_state().model_dump()
+                except AttributeError:
+                    payload = sim.to_state().dict()
+                await manager.broadcast(payload)
+            except Exception:
+                pass
 
         await asyncio.sleep(TICK_DT)
 
@@ -356,6 +373,10 @@ async def ws(ws: WebSocket) -> None:
             variation=sim.variation,
             seed=None,
         )
+        try:
+            logger.info("first client connected; sim reset; paused=%s", sim.paused)
+        except Exception:
+            pass
     try:
         # Keep the connection alive and optionally process control messages
         while True:
@@ -367,12 +388,48 @@ async def ws(ws: WebSocket) -> None:
 
             typ = msg.get("type")
             if typ == "reset":
-                sim.reset(
-                    molecule_limit=int(msg.get("molecule_limit", sim.molecule_limit)),
-                    spawn_rate=float(msg.get("spawn_rate", sim.spawn_rate)),
-                    variation=float(msg.get("variation", sim.variation)),
-                    seed=msg.get("seed"),
-                )
+                async with sim_lock:
+                    sim.reset(
+                        molecule_limit=int(msg.get("molecule_limit", sim.molecule_limit)),
+                        spawn_rate=float(msg.get("spawn_rate", sim.spawn_rate)),
+                        variation=float(msg.get("variation", sim.variation)),
+                        seed=msg.get("seed"),
+                    )
+                    try:
+                        logger.info("WS reset requested; paused now %s", sim.paused)
+                    except Exception:
+                        pass
+                    try:
+                        payload = sim.to_state().model_dump()
+                    except AttributeError:
+                        payload = sim.to_state().dict()
+                    # Direct ACK to this client to avoid interleaving with tick broadcasts
+                    await ws.send_json(payload)
+            elif typ in {"pause", "resume", "set_paused"}:
+                async with sim_lock:
+                    if typ == "pause":
+                        sim.paused = True
+                    elif typ == "resume":
+                        sim.paused = False
+                    else:
+                        val = msg.get("value")
+                        # Accept booleans and common truthy/falsey encodings
+                        if isinstance(val, bool):
+                            sim.paused = val
+                        elif isinstance(val, str):
+                            sim.paused = val.strip().lower() in {"1", "true", "yes", "on"}
+                        elif isinstance(val, (int, float)):
+                            sim.paused = bool(val)
+                    try:
+                        logger.info("WS pause toggle -> paused=%s", sim.paused)
+                    except Exception:
+                        pass
+                    try:
+                        payload = sim.to_state().model_dump()
+                    except AttributeError:
+                        payload = sim.to_state().dict()
+                    # Direct ACK to this client to prevent UI flicker; next tick will update others
+                    await ws.send_json(payload)
             # Ignore other message types; background loop handles broadcasting
 
     except WebSocketDisconnect:

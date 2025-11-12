@@ -1,4 +1,4 @@
-import { useEffect, useRef, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 
 type MoleculeDTO = {
   entity_id: number;
@@ -11,6 +11,7 @@ type MoleculeDTO = {
 type StateDTO = {
   timestep: number;
   molecules: MoleculeDTO[];
+  paused?: boolean;
 };
 
 export default function MoleculeField(): JSX.Element {
@@ -18,6 +19,11 @@ export default function MoleculeField(): JSX.Element {
   const moleculesRef = useRef<MoleculeDTO[]>([]);
   const rafRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  // Track a pending pause/resume toggle to avoid UI flicker from out-of-order snapshots
+  const pendingPauseRef = useRef<{ pending: boolean; target: boolean; retries: number }>({ pending: false, target: false, retries: 0 });
+  const retryTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -47,6 +53,25 @@ export default function MoleculeField(): JSX.Element {
       try {
         const state: StateDTO = JSON.parse(ev.data);
         moleculesRef.current = state.molecules;
+        if (typeof state.paused === "boolean") {
+          const pending = pendingPauseRef.current;
+          if (pending.pending) {
+            // Only accept server paused value when it matches our requested target
+            if (state.paused === pending.target) {
+              setPaused(state.paused);
+              pausedRef.current = state.paused;
+              pendingPauseRef.current = { pending: false, target: pending.target, retries: 0 };
+              if (retryTimerRef.current !== null) {
+                window.clearTimeout(retryTimerRef.current);
+                retryTimerRef.current = null;
+              }
+            }
+            // Otherwise ignore this snapshot's paused field to prevent flicker
+          } else {
+            setPaused(state.paused);
+            pausedRef.current = state.paused;
+          }
+        }
       } catch {
         // ignore malformed messages
       }
@@ -71,6 +96,23 @@ export default function MoleculeField(): JSX.Element {
         ctx.fillStyle = m.colour ?? speciesColour(m.species_id);
         ctx.fill();
       }
+
+      // Draw a simple overlay when paused
+      if (pausedRef.current) {
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+
+        ctx.save();
+        ctx.fillStyle = "#eaeaea";
+        ctx.font = "bold 24px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("Paused", w / 2, h / 2);
+        ctx.restore();
+      }
     }
 
     function loop(now: number): void {
@@ -90,15 +132,60 @@ export default function MoleculeField(): JSX.Element {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       ro.disconnect();
       ws.close();
+      pendingPauseRef.current = { pending: false, target: false, retries: 0 };
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, []);
 
+  function togglePause(): void {
+    const next = !paused;
+    setPaused(next); // optimistic update; server echo will confirm
+    pausedRef.current = next;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: next ? "pause" : "resume" }));
+    }
+    pendingPauseRef.current = { pending: true, target: next, retries: 0 };
+    // Start a short retry loop in case the control message is lost
+    const scheduleRetry = () => {
+      const pending = pendingPauseRef.current;
+      if (!pending.pending) return; // already acknowledged
+      if (pending.retries >= 5) return; // give up after a few tries
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: pending.target ? "pause" : "resume" }));
+        pendingPauseRef.current = { ...pending, retries: pending.retries + 1 };
+      }
+      retryTimerRef.current = window.setTimeout(scheduleRetry, 250);
+    };
+    if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = window.setTimeout(scheduleRetry, 250);
+  }
+
   return (
-    <div style={{ width: "100%", height: "70vh", background: "black", borderRadius: 12 }}>
-      <canvas
-        ref={canvasRef}
-        style={{ width: "100%", height: "100%", display: "block" }}
-      />
+    <div style={{ width: "100%" }}>
+      <div style={{ width: "100%", height: "70vh", background: "black", borderRadius: 12 }}>
+        <canvas
+          ref={canvasRef}
+          style={{ width: "100%", height: "100%", display: "block" }}
+        />
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <button
+          onClick={togglePause}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: "1px solid #333",
+            background: paused ? "#100958ff" : "#100958ff",
+            color: "#d4d7fcff",
+            cursor: "pointer",
+          }}
+        >
+          {paused ? "Play" : "Pause"}
+        </button>
+      </div>
     </div>
   );
 }
