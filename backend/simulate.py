@@ -2,12 +2,13 @@ import random
 
 from molecule import Molecule
 
-def run_simulation(n_timesteps: int, spawn_rate: float, variation: float) -> None:
+def run_simulation(n_timesteps: int, molecule_limit: int, spawn_rate: float, variation: float) -> None:
     """
     Runs the simulation until the program is ended.
 
-    :param spawn_rate: The percent chance of a default molecule spawning (as long as there are zero molecules in the simulation).
     :param n_timesteps: The total number of timesteps to simulate; infinite if the value is -1.
+    :param molecule_limit: The amount of molecules that the simulation has the 'resources' to support, above which reproduction is disabled.
+    :param spawn_rate: The percent chance of a default molecule spawning (as long as there are zero molecules in the simulation).
     :param variation: The maximum variance possible for molecular parameters.
     """
     timestep = 0
@@ -32,7 +33,10 @@ def run_simulation(n_timesteps: int, spawn_rate: float, variation: float) -> Non
 
                 molecules.append(new_molecule)
 
-        # Run simulation for each individual molecule.
+        # Determine if molecule limit has been breached
+        no_reproduction = True if len(molecules) >= molecule_limit else False
+
+        # Run death simulation for each molecule
         for molecule in molecules:
             # Decide if the molecule will die
             do_die = random.uniform(0.0, 100.0)
@@ -40,7 +44,12 @@ def run_simulation(n_timesteps: int, spawn_rate: float, variation: float) -> Non
                 molecules.remove(molecule)
                 pass
 
-            # Decide if the molecule will reproduce
+        # Run reproduction simulation for each molecule
+        for molecule in molecules:
+            # Check if reproduction is available
+            if no_reproduction == True:
+                break
+
             do_reproduce = random.uniform(0.0, 100.0)
             if do_reproduce < molecule.reproduction_rate:
 
@@ -51,11 +60,11 @@ def run_simulation(n_timesteps: int, spawn_rate: float, variation: float) -> Non
 
                     # Choose new parameters
                     reproduce_chance = molecule.reproduction_rate + random.uniform(0.0, variation) * random.choice([-1, 1])
-                    if reproduce_chance < 0.0: reproduce_chance = 0.0
+                    if reproduce_chance < 0.1: reproduce_chance = 0.1
                     mutate_chance = molecule.mutation_rate + random.uniform(0.0, variation) * random.choice([-1, 1])
-                    if mutate_chance < 0.0: mutate_chance = 0.0
+                    if mutate_chance < 0.1: mutate_chance = 0.1
                     death_chance = molecule.death_rate + random.uniform(0.0, variation) * random.choice([-1, 1])
-                    if death_chance < 0.0: death_chance = 0.0
+                    if death_chance < 0.1: death_chance = 0.1
 
                     # Create new mutated molecule
                     new_molecule = Molecule(
@@ -82,11 +91,30 @@ def run_simulation(n_timesteps: int, spawn_rate: float, variation: float) -> Non
 
         # Record results for this timestep
         with open("output/output.txt", "a") as f:
-            f.write(f"T-{timestep}")
+            f.write(f"T-{timestep} | {len(molecules)} molecules")
             for i in range(current_id):
-                f.write(f" | {i+1}: {sum(molecule.id == i+1 for molecule in molecules)}")
+                if sum(molecule.id == i+1 for molecule in molecules) > 0:
+                    f.write(f" | {i+1}: {sum(molecule.id == i+1 for molecule in molecules)}")
             f.write("\n")
 
         # End simulation if maximum timesteps reached
         if n_timesteps != -1 and timestep >= n_timesteps:
             break
+
+    # Output final state stats
+    most = -1
+    winning_id = -1
+    num_species = 0
+    for i in range(current_id):
+        n_molecules = sum(molecule.id == i+1 for molecule in molecules)
+        if n_molecules > most:
+            most = sum(molecule.id == i+1 for molecule in molecules)
+            winning_id = i+1
+        if n_molecules > 0:
+            num_species += 1
+
+    with open("output/final.txt", "a") as f:
+        f.write(f"Winner: Species {winning_id} with {most} molecules!\n")
+        f.write(f"Total molecules: {len(molecules)}\n")
+        f.write(f"Total unique species: {current_id}\n")
+        f.write(f"Surviving unique species: {num_species}\n")
