@@ -75,7 +75,7 @@ class Simulation:
         self.variation = variation
         self.timestep = 0
         self.current_species_id = 1
-        self.next_entity_id = 1
+        self.current_entity_id = 1
         self.molecules: list[Molecule] = []
         self.paused: bool = False
 
@@ -83,6 +83,7 @@ class Simulation:
         self.margin_y: float = 0.0
 
         self.species_colour: dict[int, str] = {}
+        self.first_colour = randomize_colour()
 
     def reset(
         self,
@@ -100,112 +101,114 @@ class Simulation:
 
         self.timestep = 0
         self.current_species_id = 1
-        self.next_entity_id = 1
+        self.current_entity_id = 1
         self.molecules = []
         self.species_colour = {}
+        self.first_colour = randomize_colour()
 
     def step(self, dt: float) -> None:
         # Advance one simulation tick. dt is accepted for future use; Molecule.step() handles movement.
         self.timestep += 1
 
-        # Spawn if empty
+        # Spawn molecules if simulation is empty
         if len(self.molecules) < 1:
-            if random.uniform(0.0, 100.0) < self.spawn_rate:
-                # Ensure species 1 has a colour
-                if 1 not in self.species_colour:
-                    self.species_colour[1] = randomize_colour()
-                molecule = Molecule(
+            do_spawn = random.uniform(0.0, 100.0)
+
+            # Spawn a molecule
+            if do_spawn < self.spawn_rate:
+                new_molecule = Molecule(
                     reproduction_rate=2.0,
                     mutation_rate=4.0,
                     death_rate=1.0,
-                    species_id=self.current_species_id,  # 1
-                    entity_id=self.next_entity_id,
+                    species_id=self.current_species_id,
+                    entity_id=self.current_entity_id,
                     x=random.uniform(0.0, 1.0),
                     y=random.uniform(0.0, 1.0),
-                    colour=self.species_colour[1],
+                    colour=self.first_colour,
                 )
-                self.next_entity_id += 1
-                self.molecules.append(molecule)
+                self.current_entity_id += 1
 
-        # Determine if molecule limit has been breached (disable reproduction)
-        no_reproduction = len(self.molecules) >= self.molecule_limit
+                self.molecules.append(new_molecule)
 
-        # Decide if each molecule will die this timestep
+        # Determine if molecule limit has been breached
+        no_reproduction = True if len(self.molecules) >= self.molecule_limit else False
+
+        # Run death simulation for each molecule
         survivors: list[Molecule] = []
         for molecule in self.molecules:
-            if random.uniform(0.0, 100.0) >= molecule.death_rate:
+            # Decide if the molecule will die
+            do_die = random.uniform(0.0, 100.0)
+            if do_die >= molecule.death_rate:
                 survivors.append(molecule)
         self.molecules = survivors
 
-        # Decide if each molecule will reproduce and mutate
-        if not no_reproduction:
-            children: list[Molecule] = []
-            for parent in self.molecules:
-                if random.uniform(0.0, 100.0) < parent.reproduction_rate:
-                    # Decide if the child will mutate
-                    if random.uniform(0.0, 100.0) < parent.mutation_rate:
-                        # New species
-                        self.current_species_id += 1
-                        sid = self.current_species_id
-
-                        # Choose new parameters with bounded variation
-                        def vary(base: float) -> float:
-                            val = base + random.uniform(0.0, self.variation) * random.choice([-1, 1])
-                            return val if val >= 0.1 else 0.1
-
-                        reproduce_chance = vary(parent.reproduction_rate)
-                        mutate_chance = vary(parent.mutation_rate)
-                        death_chance = vary(parent.death_rate)
-
-                        # Assign a colour for this new species
-                        colour = randomize_colour()
-                        self.species_colour[sid] = colour
-
-                        child = Molecule(
-                            reproduction_rate=reproduce_chance,
-                            mutation_rate=mutate_chance,
-                            death_rate=death_chance,
-                            species_id=sid,
-                            entity_id=self.next_entity_id,
-                            x=parent.x,
-                            y=parent.y,
-                            colour=colour,
-                        )
-                        self.next_entity_id += 1
-                        children.append(child)
-                        # Log the new species creation to file
-                        try:
-                            log_new_species(
-                                sid,
-                                reproduce_chance,
-                                mutate_chance,
-                                death_chance,
-                                colour,
-                                output_file_path="backend/output/molecules.txt",
-                            )
-                        except Exception:
-                            pass
-                    else:
-                        # Copy child molecule
-                        child = Molecule(
-                            reproduction_rate=parent.reproduction_rate,
-                            mutation_rate=parent.mutation_rate,
-                            death_rate=parent.death_rate,
-                            species_id=parent.species_id,
-                            entity_id=self.next_entity_id,
-                            x=parent.x,
-                            y=parent.y,
-                            colour=parent.colour,
-                        )
-                        self.next_entity_id += 1
-                        children.append(child)
-
-            if children:
-                self.molecules.extend(children)
-
-        # Movement and bounce
+        # Run reproduction simulation for each molecule
+        children: list[Molecule] = []
         for molecule in self.molecules:
-            # Bounce within margins
+            # Check if reproduction is available
+            if no_reproduction == True:
+                break
+
+            do_reproduce = random.uniform(0.0, 100.0)
+            if do_reproduce < molecule.reproduction_rate:
+                self.current_entity_id += 1
+
+                # Decide if the child molecule will mutate
+                do_mutate = random.uniform(0.0, 100.0)
+                if do_mutate < molecule.mutation_rate:
+                    self.current_species_id += 1
+
+                    # Choose new parameters
+                    reproduce_chance = molecule.reproduction_rate + random.uniform(0.0, self.variation) * random.choice([-1, 1])
+                    if reproduce_chance < 0.1: reproduce_chance = 0.1
+                    mutate_chance = molecule.mutation_rate + random.uniform(0.0, self.variation) * random.choice([-1, 1])
+                    if mutate_chance < 0.1: mutate_chance = 0.1
+                    death_chance = molecule.death_rate + random.uniform(0.0, self.variation) * random.choice([-1, 1])
+                    if death_chance < 0.1: death_chance = 0.1
+
+                    # Create new mutated molecule
+                    new_molecule = Molecule(
+                        reproduction_rate=reproduce_chance,
+                        mutation_rate=mutate_chance,
+                        death_rate=death_chance,
+                        species_id=self.current_species_id,
+                        entity_id=self.current_entity_id,
+                        x=molecule.x,
+                        y=molecule.y,
+                        colour=randomize_colour(),
+                    )
+                    children.append(new_molecule)
+
+                    # Log the new molecule
+                    try:
+                        log_new_species(
+                            self.current_species_id,
+                            reproduce_chance,
+                            mutate_chance,
+                            death_chance,
+                            new_molecule.colour,
+                            output_file_path="backend/output/molecules.txt",
+                        )
+                    except Exception:
+                        pass
+                    continue
+
+                # Create new molecule copy
+                new_molecule = Molecule(
+                    reproduction_rate=molecule.reproduction_rate,
+                    mutation_rate=molecule.mutation_rate,
+                    death_rate=molecule.death_rate,
+                    species_id=molecule.species_id,
+                    entity_id=self.current_entity_id,
+                    x=molecule.x,
+                    y=molecule.y,
+                    colour=molecule.colour,
+                )
+                children.append(new_molecule)
+        self.molecules.extend(children)
+
+        # Move molecules on the field
+        for molecule in self.molecules:
             molecule.step(
                 min_x=self.margin_x,
                 max_x=1.0 - self.margin_x,
@@ -213,7 +216,7 @@ class Simulation:
                 max_y=1.0 - self.margin_y,
             )
 
-        # Record results for this timestep to file
+        # Record results for this timestep
         try:
             record_results(
                 self.timestep,
