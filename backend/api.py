@@ -73,17 +73,15 @@ class Simulation:
         self.molecule_limit = molecule_limit
         self.spawn_rate = spawn_rate
         self.variation = variation
-
         self.timestep = 0
         self.current_species_id = 1
         self.next_entity_id = 1
         self.molecules: list[Molecule] = []
         self.paused: bool = False
-        # Normalized margins so molecules bounce before touching walls (accounting for radius)
+
         self.margin_x: float = 0.0
         self.margin_y: float = 0.0
 
-        # Optional: keep a stable colour per species (first species gets one at first spawn)
         self.species_colour: dict[int, str] = {}
 
     def reset(
@@ -116,7 +114,7 @@ class Simulation:
                 # Ensure species 1 has a colour
                 if 1 not in self.species_colour:
                     self.species_colour[1] = randomize_colour()
-                m = Molecule(
+                molecule = Molecule(
                     reproduction_rate=2.0,
                     mutation_rate=4.0,
                     death_rate=1.0,
@@ -127,19 +125,19 @@ class Simulation:
                     colour=self.species_colour[1],
                 )
                 self.next_entity_id += 1
-                self.molecules.append(m)
+                self.molecules.append(molecule)
 
         # Determine if molecule limit has been breached (disable reproduction)
         no_reproduction = len(self.molecules) >= self.molecule_limit
 
-        # Death (build survivors; do not remove while iterating)
+        # Decide if each molecule will die this timestep
         survivors: list[Molecule] = []
-        for m in self.molecules:
-            if random.uniform(0.0, 100.0) >= m.death_rate:
-                survivors.append(m)
+        for molecule in self.molecules:
+            if random.uniform(0.0, 100.0) >= molecule.death_rate:
+                survivors.append(molecule)
         self.molecules = survivors
 
-        # Reproduction (either mutated OR copied child)
+        # Decide if each molecule will reproduce and mutate
         if not no_reproduction:
             children: list[Molecule] = []
             for parent in self.molecules:
@@ -160,8 +158,8 @@ class Simulation:
                         death_chance = vary(parent.death_rate)
 
                         # Assign a colour for this new species
-                        col = randomize_colour()
-                        self.species_colour[sid] = col
+                        colour = randomize_colour()
+                        self.species_colour[sid] = colour
 
                         child = Molecule(
                             reproduction_rate=reproduce_chance,
@@ -171,7 +169,7 @@ class Simulation:
                             entity_id=self.next_entity_id,
                             x=parent.x,
                             y=parent.y,
-                            colour=col,
+                            colour=colour,
                         )
                         self.next_entity_id += 1
                         children.append(child)
@@ -182,12 +180,13 @@ class Simulation:
                                 reproduce_chance,
                                 mutate_chance,
                                 death_chance,
+                                colour,
                                 output_file_path="backend/output/molecules.txt",
                             )
                         except Exception:
                             pass
                     else:
-                        # Copy child (same species/params/colour)
+                        # Copy child molecule
                         child = Molecule(
                             reproduction_rate=parent.reproduction_rate,
                             mutation_rate=parent.mutation_rate,
@@ -205,9 +204,9 @@ class Simulation:
                 self.molecules.extend(children)
 
         # Movement and bounce
-        for m in self.molecules:
-            # Bounce within margins (if set) so circles don't clip into walls
-            m.step(
+        for molecule in self.molecules:
+            # Bounce within margins
+            molecule.step(
                 min_x=self.margin_x,
                 max_x=1.0 - self.margin_x,
                 min_y=self.margin_y,
