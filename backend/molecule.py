@@ -51,23 +51,23 @@ class Molecule:
         self.vx = random.choice([-0.0005, 0.0005])
         self.vy = random.choice([-0.0005, 0.0005])
 
-    def step(self) -> None:
+    def step(self, min_x: float = 0.0, max_x: float = 1.0, min_y: float = 0.0, max_y: float = 1.0) -> None:
         """
         Moves the molecule based on its position, velocity.
         """
         self.x += self.vx
         self.y += self.vy
 
-        if self.x < 0.0:
-            self.x = 0.0
+        if self.x < min_x:
+            self.x = min_x
             self.vx *= -1
-        elif self.x > 1.0:
-            self.x = 1.0
+        elif self.x > max_x:
+            self.x = max_x
             self.vx *= -1
 
-        if self.y < 0.0:
-            self.y = 0.0
+        if self.y < min_y:
+            self.y = min_y
             self.vy *= -1
-        elif self.y > 1.0:
-            self.y = 1.0
+        elif self.y > max_y:
+            self.y = max_y
             self.vy *= -1

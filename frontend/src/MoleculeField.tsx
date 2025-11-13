@@ -43,6 +43,19 @@ export default function MoleculeField(): JSX.Element {
         canvas.height = displayHeight;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Inform backend of viewport and draw radius so it can bounce with margins
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const radiusPx = 8; // must match draw radius below
+        wsRef.current.send(
+          JSON.stringify({
+            type: "viewport",
+            width: Math.max(1, Math.floor(width)),
+            height: Math.max(1, Math.floor(height)),
+            radius_px: radiusPx,
+          })
+        );
+      }
     }
 
     const ws = new WebSocket("ws://localhost:8000/ws");
@@ -105,7 +118,7 @@ export default function MoleculeField(): JSX.Element {
       const h = canvas.clientHeight;
       ctx.clearRect(0, 0, w, h);
 
-      const radius = 8; // make molecules appear wider
+      const radius = 8; // draw radius in px; backend uses this to set bounce margins
       for (const m of moleculesRef.current) {
         ctx.beginPath();
         ctx.arc(m.x * w, m.y * h, radius, 0, Math.PI * 2);
