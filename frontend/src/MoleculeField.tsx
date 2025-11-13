@@ -62,8 +62,8 @@ export default function MoleculeField(): JSX.Element {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Optional: prime with a no-op step
-      // ws.send(JSON.stringify({ type: "step", dt: 0 }));
+      // Send viewport immediately on connect so backend sets bounce margins
+      resize();
     };
 
     ws.onmessage = (ev) => {
@@ -222,7 +222,7 @@ export default function MoleculeField(): JSX.Element {
             {paused ? "Play" : "Pause"}
           </button>
           <label style={{ color: "#100958ff", fontSize: 14 }}>
-            Max molecules: <strong>{moleculeLimit}</strong>
+            Molecule limit: <strong>{moleculeLimit}</strong>
           </label>
           <input
             type="range"
