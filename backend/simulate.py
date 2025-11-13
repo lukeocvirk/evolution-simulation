@@ -135,7 +135,7 @@ def randomize_colour() -> str:
 
 def record_results(timestep: int, molecules: list[Molecule], num_species: int, output_file_path: str) -> None:
     """
-    Outputs current simulation information.
+    Outputs current simulation information to the given file.
 
     :param timestep: The current timestep.
     :param molecules: The current list of molecules.
@@ -151,10 +151,11 @@ def record_results(timestep: int, molecules: list[Molecule], num_species: int, o
 
 def output_final(molecules: list[Molecule], current_species_id: int, output_file_path: str) -> None:
     """
-    Outputs the final simulation results.
+    Outputs the final simulation results to the given file.
 
     :param molecules: The current list of molecules.
     :param current_species_id: The total number of unique species.
+    :param output_file_path: The file to output results to.
     """
     most = -1
     winning_id = -1
@@ -173,9 +174,15 @@ def output_final(molecules: list[Molecule], current_species_id: int, output_file
         f.write(f"Total unique species: {current_species_id}\n")
         f.write(f"Surviving unique species: {num_species}\n")
 
-def log_new_species(current_species_id: int, reproduce_chance: float, mutate_chance: float, death_chance: float, output_file_path: str) -> None:
+def log_new_species(current_species_id: int, reproduce_chance: float, mutate_chance: float, death_chance: float, colour: float, output_file_path: str) -> None:
     """
-    Outputs the
+    Outputs all information about a species to the given file.
+
+    :param current_species_id: The total number of unique species.
+    :param reproduce_chance: The percent chance of a species reproducing each timestep.
+    :param mutate_chance: The percent chance of a species mutating when it reproduces.
+    :param death_chance: The percent chance of a species dying each timestep.
+    :param output_file_path: The file to output results to.
     """
     with open(output_file_path, "a") as f:
-        f.write(f"Species ID: {current_species_id} | R: {reproduce_chance:.2f} - M: {mutate_chance:.2f} - D: {death_chance:.2f}\n")
+        f.write(f"Species ID: {current_species_id} | R: {reproduce_chance:.2f} - M: {mutate_chance:.2f} - D: {death_chance:.2f} - C: {colour}\n")
