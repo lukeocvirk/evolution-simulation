@@ -79,6 +79,9 @@ class Simulation:
         self.next_entity_id = 1
         self.molecules: list[Molecule] = []
         self.paused: bool = False
+        # Normalized margins so molecules bounce before touching walls (accounting for radius)
+        self.margin_x: float = 0.0
+        self.margin_y: float = 0.0
 
         # Optional: keep a stable colour per species (first species gets one at first spawn)
         self.species_colour: dict[int, str] = {}
@@ -203,8 +206,13 @@ class Simulation:
 
         # Movement and bounce
         for m in self.molecules:
-            # If Molecule.step ever accepts dt, pass it here: m.step(dt)
-            m.step()
+            # Bounce within margins (if set) so circles don't clip into walls
+            m.step(
+                min_x=self.margin_x,
+                max_x=1.0 - self.margin_x,
+                min_y=self.margin_y,
+                max_y=1.0 - self.margin_y,
+            )
 
         # Record results for this timestep to file
         try:
@@ -442,6 +450,23 @@ async def ws(ws: WebSocket) -> None:
                     if new_limit < 1:
                         new_limit = 1
                     sim.molecule_limit = new_limit
+                    try:
+                        payload = sim.to_state().model_dump()
+                    except AttributeError:
+                        payload = sim.to_state().dict()
+                    await ws.send_json(payload)
+            elif typ == "viewport":
+                # Update normalized margins based on current canvas size and draw radius (in px)
+                async with sim_lock:
+                    try:
+                        width = float(msg.get("width", 0))
+                        height = float(msg.get("height", 0))
+                        radius = float(msg.get("radius_px", 0))
+                    except Exception:
+                        width = height = radius = 0.0
+                    if width > 0 and height > 0 and radius >= 0:
+                        sim.margin_x = max(0.0, min(0.5, radius / width))
+                        sim.margin_y = max(0.0, min(0.5, radius / height))
                     try:
                         payload = sim.to_state().model_dump()
                     except AttributeError:
