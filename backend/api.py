@@ -36,6 +36,7 @@ class StateDTO(BaseModel):
     timestep: int
     molecules: List[MoleculeDTO]
     paused: bool = False
+    molecule_limit: int
 
 
 # ----- Helpers -----
@@ -230,6 +231,7 @@ class Simulation:
                 for m in self.molecules
             ],
             paused=self.paused,
+            molecule_limit=self.molecule_limit,
         )
 
 
@@ -429,6 +431,21 @@ async def ws(ws: WebSocket) -> None:
                     except AttributeError:
                         payload = sim.to_state().dict()
                     # Direct ACK to this client to prevent UI flicker; next tick will update others
+                    await ws.send_json(payload)
+            elif typ == "set_molecule_limit":
+                async with sim_lock:
+                    val = msg.get("value")
+                    try:
+                        new_limit = int(val)
+                    except Exception:
+                        new_limit = sim.molecule_limit
+                    if new_limit < 1:
+                        new_limit = 1
+                    sim.molecule_limit = new_limit
+                    try:
+                        payload = sim.to_state().model_dump()
+                    except AttributeError:
+                        payload = sim.to_state().dict()
                     await ws.send_json(payload)
             # Ignore other message types; background loop handles broadcasting
 

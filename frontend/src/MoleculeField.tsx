@@ -12,6 +12,7 @@ type StateDTO = {
   timestep: number;
   molecules: MoleculeDTO[];
   paused?: boolean;
+  molecule_limit?: number;
 };
 
 export default function MoleculeField(): JSX.Element {
@@ -20,7 +21,10 @@ export default function MoleculeField(): JSX.Element {
   const rafRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [paused, setPaused] = useState(false);
+  const [moleculeLimit, setMoleculeLimit] = useState<number>(1000);
   const pausedRef = useRef(false);
+  const limitPendingRef = useRef<{ pending: boolean; target: number }>({ pending: false, target: 1000 });
+  const limitDebounceRef = useRef<number | null>(null);
   // Track a pending pause/resume toggle to avoid UI flicker from out-of-order snapshots
   const pendingPauseRef = useRef<{ pending: boolean; target: boolean; retries: number }>({ pending: false, target: false, retries: 0 });
   const retryTimerRef = useRef<number | null>(null);
@@ -70,6 +74,18 @@ export default function MoleculeField(): JSX.Element {
           } else {
             setPaused(state.paused);
             pausedRef.current = state.paused;
+          }
+        }
+        if (typeof state.molecule_limit === "number") {
+          const serverLimit = state.molecule_limit;
+          const lp = limitPendingRef.current;
+          if (lp.pending) {
+            if (serverLimit === lp.target) {
+              setMoleculeLimit(serverLimit);
+              limitPendingRef.current = { pending: false, target: lp.target };
+            } // else ignore older snapshot
+          } else {
+            setMoleculeLimit(serverLimit);
           }
         }
       } catch {
@@ -163,6 +179,12 @@ export default function MoleculeField(): JSX.Element {
     retryTimerRef.current = window.setTimeout(scheduleRetry, 250);
   }
 
+  function resetSim(): void {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "reset" }));
+    }
+  }
+
   return (
     <div style={{ width: "100%" }}>
       <div style={{ width: "100%", height: "70vh", background: "black", borderRadius: 12 }}>
@@ -171,20 +193,61 @@ export default function MoleculeField(): JSX.Element {
           style={{ width: "100%", height: "100%", display: "block" }}
         />
       </div>
-      <div style={{ marginTop: 8 }}>
-        <button
-          onClick={togglePause}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "1px solid #333",
-            background: paused ? "#100958ff" : "#100958ff",
-            color: "#d4d7fcff",
-            cursor: "pointer",
-          }}
-        >
-          {paused ? "Play" : "Pause"}
-        </button>
+      <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={togglePause}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "1px solid #333",
+              background: paused ? "#100958ff" : "#100958ff",
+              color: "#d4d7fcff",
+              cursor: "pointer",
+            }}
+          >
+            {paused ? "Play" : "Pause"}
+          </button>
+          <label style={{ color: "#100958ff", fontSize: 14 }}>
+            Max molecules: <strong>{moleculeLimit}</strong>
+          </label>
+          <input
+            type="range"
+          min={50}
+          max={2500}
+          step={50}
+            value={moleculeLimit}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setMoleculeLimit(next);
+              // Ignore older snapshots until ACK for this target arrives
+              limitPendingRef.current = { pending: true, target: next };
+              // Debounce send
+              if (limitDebounceRef.current !== null) window.clearTimeout(limitDebounceRef.current);
+              limitDebounceRef.current = window.setTimeout(() => {
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: "set_molecule_limit", value: next }));
+                }
+              }, 300);
+            }}
+            style={{ width: 240 }}
+          />
+        </div>
+        <div>
+          <button
+            onClick={resetSim}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "1px solid #333",
+              background: "#100958ff",
+              color: "#eaeaea",
+              cursor: "pointer",
+            }}
+          >
+            Reset
+          </button>
+        </div>
       </div>
     </div>
   );
