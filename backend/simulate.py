@@ -93,7 +93,7 @@ def run_simulation(n_timesteps: int, molecule_limit: int, spawn_rate: float, var
                     children.append(new_molecule)
 
                     # Log the new molecule
-                    log_new_species(current_species_id, reproduce_chance, mutate_chance, death_chance, output_file_path="output/molecules.txt")
+                    log_new_species(current_species_id, reproduce_chance, mutate_chance, death_chance, new_molecule.colour, output_file_path="output/molecules.txt")
                     continue
 
                 # Create new molecule copy
@@ -174,7 +174,7 @@ def output_final(molecules: list[Molecule], current_species_id: int, output_file
         f.write(f"Total unique species: {current_species_id}\n")
         f.write(f"Surviving unique species: {num_species}\n")
 
-def log_new_species(current_species_id: int, reproduce_chance: float, mutate_chance: float, death_chance: float, colour: float, output_file_path: str) -> None:
+def log_new_species(current_species_id: int, reproduce_chance: float, mutate_chance: float, death_chance: float, colour: str, output_file_path: str) -> None:
     """
     Outputs all information about a species to the given file.
 
